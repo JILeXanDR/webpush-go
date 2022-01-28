@@ -22,6 +22,22 @@ const MaxRecordSize uint32 = 4096
 
 var ErrMaxPadExceeded = errors.New("payload has exceeded the maximum length")
 
+type Cacher interface {
+	Get(key string) ([]byte, bool, error)
+	Set(key string, value []byte) error
+}
+
+type noCache struct {
+}
+
+func (c noCache) Get(key string) ([]byte, bool, error) {
+	return nil, false, nil
+}
+
+func (c noCache) Set(key string, value []byte) error {
+	return nil
+}
+
 // saltFunc generates a salt of 16 bytes
 var saltFunc = func() ([]byte, error) {
 	salt := make([]byte, 16)
@@ -48,6 +64,7 @@ type Options struct {
 	Urgency         Urgency    // Set the Urgency header to change a message priority (Optional)
 	VAPIDPublicKey  string     // VAPID public key, passed in VAPID Authorization header
 	VAPIDPrivateKey string     // VAPID private key, used to sign VAPID JWT token
+	JWTCache        Cacher     // Will replace with *noCache by default if not included
 }
 
 // Keys are the base64 encoded values from PushSubscription.getKey()
@@ -196,8 +213,16 @@ func SendNotification(message []byte, s *Subscription, options *Options) (*http.
 		req.Header.Set("Urgency", string(options.Urgency))
 	}
 
+	var jwtCache Cacher
+	if jwtCache != nil {
+		jwtCache = options.JWTCache
+	} else {
+		jwtCache = &noCache{}
+	}
+
 	// Get VAPID Authorization header
-	vapidAuthHeader, err := getVAPIDAuthorizationHeader(
+	vapidAuthHeader, err := getVAPIDAuthorizationHeaderWithCache(
+		jwtCache,
 		s.Endpoint,
 		options.Subscriber,
 		options.VAPIDPublicKey,

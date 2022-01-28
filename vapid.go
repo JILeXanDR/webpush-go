@@ -104,6 +104,32 @@ func getVAPIDAuthorizationHeader(
 	), nil
 }
 
+func getVAPIDAuthorizationHeaderWithCache(cache Cacher, endpoint string, subscriber string, vapidPublicKey string, vapidPrivateKey string) (string, error) {
+	cached, ok, err := cache.Get(endpoint)
+	if err != nil {
+		return "", err
+	}
+	if ok {
+		return string(cached), nil
+	}
+
+	// Get VAPID Authorization header
+	generated, err := getVAPIDAuthorizationHeader(
+		endpoint,
+		subscriber,
+		vapidPublicKey,
+		vapidPrivateKey,
+	)
+	if err != nil {
+		return "", err
+	}
+	if err := cache.Set(endpoint, []byte(generated)); err != nil {
+		return "", err
+	}
+
+	return generated, nil
+}
+
 // Need to decode the vapid private key in multiple base64 formats
 // Solution from: https://github.com/SherClockHolmes/webpush-go/issues/29
 func decodeVapidKey(key string) ([]byte, error) {
