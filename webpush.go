@@ -201,7 +201,7 @@ func SendNotification(message []byte, s *Subscription, options *Options) (*http.
 	}
 
 	var jwtCache Cacher
-	if jwtCache != nil && s.UniqueKey != nil {
+	if options.JWTCache != nil && s.UniqueKey != nil {
 		jwtCache = options.JWTCache
 	} else {
 		jwtCache = &noCache{}
