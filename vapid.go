@@ -104,13 +104,13 @@ func getVAPIDAuthorizationHeader(
 	), nil
 }
 
-func getVAPIDAuthorizationHeaderWithCache(cache Cacher, endpoint string, subscriber string, vapidPublicKey string, vapidPrivateKey string) (string, error) {
-	cached, ok, err := cache.Get(endpoint)
+func getVAPIDAuthorizationHeaderWithCache(cache Cacher, key interface{}, endpoint string, subscriber string, vapidPublicKey string, vapidPrivateKey string) (string, error) {
+	cached, ok, err := cache.GetString(key)
 	if err != nil {
 		return "", err
 	}
 	if ok {
-		return string(cached), nil
+		return cached, nil
 	}
 
 	// Get VAPID Authorization header
@@ -123,7 +123,7 @@ func getVAPIDAuthorizationHeaderWithCache(cache Cacher, endpoint string, subscri
 	if err != nil {
 		return "", err
 	}
-	if err := cache.Set(endpoint, []byte(generated)); err != nil {
+	if err := cache.SetString(key, generated); err != nil {
 		return "", err
 	}
 

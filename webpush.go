@@ -22,22 +22,6 @@ const MaxRecordSize uint32 = 4096
 
 var ErrMaxPadExceeded = errors.New("payload has exceeded the maximum length")
 
-type Cacher interface {
-	Get(key string) ([]byte, bool, error)
-	Set(key string, value []byte) error
-}
-
-type noCache struct {
-}
-
-func (c noCache) Get(key string) ([]byte, bool, error) {
-	return nil, false, nil
-}
-
-func (c noCache) Set(key string, value []byte) error {
-	return nil
-}
-
 // saltFunc generates a salt of 16 bytes
 var saltFunc = func() ([]byte, error) {
 	salt := make([]byte, 16)
@@ -75,8 +59,11 @@ type Keys struct {
 
 // Subscription represents a PushSubscription object from the Push API
 type Subscription struct {
-	Endpoint string `json:"endpoint"`
-	Keys     Keys   `json:"keys"`
+	// UniqueKey is an identifier of subscription used for caching purposes.
+	// It's required only when Options.JWTCache is used.
+	UniqueKey interface{} `json:"-"`
+	Endpoint  string      `json:"endpoint"`
+	Keys      Keys        `json:"keys"`
 }
 
 // SendNotification sends a push notification to a subscription's endpoint
@@ -214,7 +201,7 @@ func SendNotification(message []byte, s *Subscription, options *Options) (*http.
 	}
 
 	var jwtCache Cacher
-	if jwtCache != nil {
+	if jwtCache != nil && s.UniqueKey != nil {
 		jwtCache = options.JWTCache
 	} else {
 		jwtCache = &noCache{}
@@ -223,6 +210,7 @@ func SendNotification(message []byte, s *Subscription, options *Options) (*http.
 	// Get VAPID Authorization header
 	vapidAuthHeader, err := getVAPIDAuthorizationHeaderWithCache(
 		jwtCache,
+		s.UniqueKey,
 		s.Endpoint,
 		options.Subscriber,
 		options.VAPIDPublicKey,
