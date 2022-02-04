@@ -66,7 +66,6 @@ func TestVAPID(t *testing.T) {
 	} else {
 		t.Fatal(err)
 	}
-
 }
 
 func TestVAPIDKeys(t *testing.T) {
@@ -97,4 +96,30 @@ func getTokenFromAuthorizationHeader(tokenHeader string, t *testing.T) string {
 	}
 
 	return tsplit[1][:len(tsplit[1])-1]
+}
+
+func Benchmark_getVAPIDAuthorizationHeader(b *testing.B) {
+	vapidPrivateKey, vapidPublicKey, err := GenerateVAPIDKeys()
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	s := getStandardEncodedTestSubscription()
+	sub := "test@test.com"
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		s, err := getVAPIDAuthorizationHeader(
+			s.Endpoint,
+			sub,
+			vapidPublicKey,
+			vapidPrivateKey,
+		)
+		_ = s
+		if err != nil {
+			b.Fatalf("cannot get vapid authorization header: %s", err)
+		}
+	}
 }

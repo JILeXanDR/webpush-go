@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/valyala/fasthttp"
+	"github.com/valyala/fastrand"
 	"golang.org/x/crypto/hkdf"
 )
 
@@ -24,13 +25,28 @@ const MaxRecordSize uint32 = 4096
 
 var ErrMaxPadExceeded = errors.New("payload has exceeded the maximum length")
 
-// saltFunc generates a salt of 16 bytes
-var saltFunc = func() ([]byte, error) {
+// SaltFunc generates salt
+type SaltFunc func() ([]byte, error)
+
+// DefaultSaltFunc generates a salt of 16 bytes
+func DefaultSaltFunc() ([]byte, error) {
 	salt := make([]byte, 16)
 	_, err := io.ReadFull(rand.Reader, salt)
 	if err != nil {
 		return salt, err
 	}
+
+	return salt, nil
+}
+
+// FastRandSaltFunc use pseudorandom generator from fastrand library
+func FastRandSaltFunc() ([]byte, error) {
+	salt := make([]byte, 16)
+
+	binary.BigEndian.PutUint32(salt[0:4], fastrand.Uint32())
+	binary.BigEndian.PutUint32(salt[4:8], fastrand.Uint32())
+	binary.BigEndian.PutUint32(salt[8:12], fastrand.Uint32())
+	binary.BigEndian.PutUint32(salt[12:16], fastrand.Uint32())
 
 	return salt, nil
 }
@@ -52,6 +68,8 @@ type Options struct {
 	VAPIDPublicKey  string     // VAPID public key, passed in VAPID Authorization header
 	VAPIDPrivateKey string     // VAPID private key, used to sign VAPID JWT token
 	JWTCache        Cacher     // Will replace with *noCache by default if not included
+	SaltFunc        SaltFunc   // SaltFunc used to generate salt to sign message,
+	// by default used FastRandSaltFunc
 }
 
 // Keys are the base64 encoded values from PushSubscription.getKey()
@@ -85,7 +103,12 @@ func SendNotification(message []byte, s *Subscription, options *Options) (*http.
 		return nil, err
 	}
 
+	var saltFunc = options.SaltFunc
+	if saltFunc == nil {
+		saltFunc = FastRandSaltFunc
+	}
 	// Generate 16 byte salt
+	// TODO: also use sync.Pool to return []byte with 16 len
 	salt, err := saltFunc()
 	if err != nil {
 		return nil, err
@@ -271,7 +294,12 @@ func SendNotificationFasthttp(message []byte, s *Subscription, options *Options)
 		return 0, err
 	}
 
+	var saltFunc = options.SaltFunc
+	if saltFunc == nil {
+		saltFunc = FastRandSaltFunc
+	}
 	// Generate 16 byte salt
+	// TODO: also use sync.Pool to return []byte with 16 len
 	salt, err := saltFunc()
 	if err != nil {
 		return 0, err

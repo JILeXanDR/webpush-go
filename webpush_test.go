@@ -12,6 +12,24 @@ func (*testHTTPClient) Do(*http.Request) (*http.Response, error) {
 	return &http.Response{StatusCode: 201}, nil
 }
 
+func Test_saltFuncFastRand(t *testing.T) {
+	data, err := FastRandSaltFunc()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Log(data)
+}
+
+func Benchmark_saltFunc(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		bytes, err := FastRandSaltFunc()
+		if err != nil {
+			b.Fatal(err)
+		}
+		_ = bytes
+	}
+}
+
 func getURLEncodedTestSubscription() *Subscription {
 	return &Subscription{
 		Endpoint: "https://updates.push.services.mozilla.com/wpush/v2/gAAAAA",
