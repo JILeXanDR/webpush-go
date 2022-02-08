@@ -20,7 +20,8 @@ func TestVAPID(t *testing.T) {
 	}
 
 	// Get authentication header
-	vapidAuthHeader, err := getVAPIDAuthorizationHeader(
+	vapidAuthHeader, err := makeVAPIDAuthorizationHeader(
+		defaultJWTDuration,
 		s.Endpoint,
 		sub,
 		vapidPublicKey,
@@ -111,7 +112,8 @@ func Benchmark_getVAPIDAuthorizationHeader(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		s, err := getVAPIDAuthorizationHeader(
+		s, err := makeVAPIDAuthorizationHeader(
+			defaultJWTDuration,
 			s.Endpoint,
 			sub,
 			vapidPublicKey,
