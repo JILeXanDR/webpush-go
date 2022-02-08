@@ -1,11 +1,11 @@
 self.addEventListener('push', event => {
   console.log('[Service Worker] Push Received.');
-  console.log(`[Service Worker] Push had this data: "${event.data.text()}"`);
+  console.log(`[Service Worker] Push had this data: "${event.data ? event.data.text() : null}"`);
 
-  const title = 'Test Webpush';
-  const options = {
-    body: event.data.text(),
-  };
-
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(self.registration.showNotification(
+      'Test Webpush',
+      {
+        body: event.data ? event.data.text() : 'No payload',
+      },
+  ));
 });

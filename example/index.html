@@ -9,7 +9,7 @@
     function subscribe() {
       navigator.serviceWorker.ready
         .then(function(registration) {
-          const vapidPublicKey = '<YOUR_VAPID_PUBLIC_KEY>';
+          const vapidPublicKey = 'BInM_lCdkF2EzNXuD9lV2ac-HpB4tCGIav11s6Ty4y2T-9Nc870AiIbW6-Is7e7dizSOp9f_dHpjtym26c-79HU';
 
           return registration.pushManager.subscribe({
             userVisibleOnly: true,
@@ -17,11 +17,7 @@
           });
         })
         .then(function(subscription) {
-          console.log(
-            JSON.stringify({
-              subscription: subscription,
-            })
-          );
+          JSON.stringify(subscription, null, '  ')
         })
         .catch(err => console.error(err));
     }
@@ -46,9 +42,7 @@
             subscribe();
           } else {
             console.log(
-              JSON.stringify({
-                subscription: subscription,
-              })
+              JSON.stringify(subscription, null, '  ')
             );
           }
         });

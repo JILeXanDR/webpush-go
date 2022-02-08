@@ -58,8 +58,9 @@ func generateVAPIDHeaderKeys(privateKey []byte) *ecdsa.PrivateKey {
 	}
 }
 
-// getVAPIDAuthorizationHeader
-func getVAPIDAuthorizationHeader(
+// makeVAPIDAuthorizationHeader
+func makeVAPIDAuthorizationHeader(
+	jwtDuration time.Duration,
 	endpoint,
 	subscriber,
 	vapidPublicKey,
@@ -72,8 +73,9 @@ func getVAPIDAuthorizationHeader(
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.MapClaims{
+		// it's push server like https://fcm.googleapis.com
 		"aud": fmt.Sprintf("%s://%s", subURL.Scheme, subURL.Host),
-		"exp": time.Now().Add(time.Hour * 12).Unix(),
+		"exp": time.Now().Add(jwtDuration).Unix(),
 		"sub": fmt.Sprintf("mailto:%s", subscriber),
 	})
 
@@ -97,14 +99,32 @@ func getVAPIDAuthorizationHeader(
 		return "", err
 	}
 
-	return fmt.Sprintf(
-		"vapid t=%s, k=%s",
-		jwtString,
-		base64.RawURLEncoding.EncodeToString(pubKey),
-	), nil
+	return "vapid t=" + jwtString + ", k=" + base64.RawURLEncoding.EncodeToString(pubKey), nil
 }
 
-func getVAPIDAuthorizationHeaderWithCache(cache Cacher, key interface{}, endpoint string, subscriber string, vapidPublicKey string, vapidPrivateKey string) (string, error) {
+func getVAPIDAuthorizationHeader(cache Cacher, key interface{}, endpoint string, subscriber string, vapidPublicKey string, vapidPrivateKey string) (string, error) {
+	if key == nil {
+		return makeVAPIDAuthorizationHeader(
+			defaultJWTDuration,
+			endpoint,
+			subscriber,
+			vapidPublicKey,
+			vapidPrivateKey,
+		)
+	}
+
+	return getVAPIDAuthorizationHeaderWithCache(
+		defaultJWTDuration,
+		cache,
+		key,
+		endpoint,
+		subscriber,
+		vapidPublicKey,
+		vapidPrivateKey,
+	)
+}
+
+func getVAPIDAuthorizationHeaderWithCache(jwtDuration time.Duration, cache Cacher, key interface{}, endpoint string, subscriber string, vapidPublicKey string, vapidPrivateKey string) (string, error) {
 	cached, ok, err := cache.GetString(key)
 	if err != nil {
 		return "", err
@@ -114,7 +134,8 @@ func getVAPIDAuthorizationHeaderWithCache(cache Cacher, key interface{}, endpoin
 	}
 
 	// Get VAPID Authorization header
-	generated, err := getVAPIDAuthorizationHeader(
+	generated, err := makeVAPIDAuthorizationHeader(
+		jwtDuration,
 		endpoint,
 		subscriber,
 		vapidPublicKey,

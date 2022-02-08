@@ -83,8 +83,10 @@ type Subscription struct {
 	// UniqueKey is an identifier of subscription used for caching purposes.
 	// It's required only when Options.JWTCache is used.
 	UniqueKey interface{} `json:"-"`
-	Endpoint  string      `json:"endpoint"`
-	Keys      Keys        `json:"keys"`
+	// Endpoint is client's push URL we send pushes to.
+	Endpoint string `json:"endpoint"`
+	// Keys are Endpoint's specific keys used to encode push message.
+	Keys Keys `json:"keys"`
 }
 
 // SendNotification sends a push notification to a subscription's endpoint
@@ -214,7 +216,7 @@ func SendNotification(message []byte, s *Subscription, options *Options) (*http.
 	}
 
 	// Get VAPID Authorization header
-	vapidAuthHeader, err := getVAPIDAuthorizationHeaderWithCache(
+	vapidAuthHeader, err := getVAPIDAuthorizationHeader(
 		jwtCache,
 		s.UniqueKey,
 		s.Endpoint,
@@ -279,179 +281,6 @@ func getBuf() *bytes.Buffer {
 func storeBuf(buf *bytes.Buffer) {
 	buf.Reset()
 	bufferPool.Put(buf)
-}
-
-func SendNotificationFasthttp(message []byte, s *Subscription, options *Options) (int, error) {
-	// Authentication secret (auth_secret)
-	authSecret, err := decodeSubscriptionKey(s.Keys.Auth)
-	if err != nil {
-		return 0, err
-	}
-
-	// dh (Diffie Hellman)
-	dh, err := decodeSubscriptionKey(s.Keys.P256dh)
-	if err != nil {
-		return 0, err
-	}
-
-	var saltFunc = options.SaltFunc
-	if saltFunc == nil {
-		saltFunc = FastRandSaltFunc
-	}
-	// Generate 16 byte salt
-	// TODO: also use sync.Pool to return []byte with 16 len
-	salt, err := saltFunc()
-	if err != nil {
-		return 0, err
-	}
-
-	// Create the ecdh_secret shared key pair
-	curve := elliptic.P256()
-
-	// Application server key pairs (single use)
-	localPrivateKey, x, y, err := elliptic.GenerateKey(curve, rand.Reader)
-	if err != nil {
-		return 0, err
-	}
-
-	localPublicKey := elliptic.Marshal(curve, x, y)
-
-	// Combine application keys with dh
-	sharedX, sharedY := elliptic.Unmarshal(curve, dh)
-	if sharedX == nil {
-		return 0, errors.New("Unmarshal Error: Public key is not a valid point on the curve")
-	}
-
-	sx, _ := curve.ScalarMult(sharedX, sharedY, localPrivateKey)
-	sharedECDHSecret := sx.Bytes()
-
-	hash := sha256.New
-
-	// ikm
-	prkInfoBuf := getBufWithBytes([]byte("WebPush: info\x00"))
-	defer storeBuf(prkInfoBuf)
-	prkInfoBuf.Write(dh)
-	prkInfoBuf.Write(localPublicKey)
-
-	prkHKDF := hkdf.New(hash, sharedECDHSecret, authSecret, prkInfoBuf.Bytes())
-	ikm, err := getHKDFKey(prkHKDF, 32)
-	if err != nil {
-		return 0, err
-	}
-
-	// Derive Content Encryption Key
-	contentEncryptionKeyInfo := []byte("Content-Encoding: aes128gcm\x00")
-	contentHKDF := hkdf.New(hash, ikm, salt, contentEncryptionKeyInfo)
-	contentEncryptionKey, err := getHKDFKey(contentHKDF, 16)
-	if err != nil {
-		return 0, err
-	}
-
-	// Derive the Nonce
-	nonceInfo := []byte("Content-Encoding: nonce\x00")
-	nonceHKDF := hkdf.New(hash, ikm, salt, nonceInfo)
-	nonce, err := getHKDFKey(nonceHKDF, 12)
-	if err != nil {
-		return 0, err
-	}
-
-	// Cipher
-	c, err := aes.NewCipher(contentEncryptionKey)
-	if err != nil {
-		return 0, err
-	}
-
-	gcm, err := cipher.NewGCM(c)
-	if err != nil {
-		return 0, err
-	}
-
-	// Get the record size
-	recordSize := options.RecordSize
-	if recordSize == 0 {
-		recordSize = MaxRecordSize
-	}
-
-	recordLength := int(recordSize) - 16
-
-	// Encryption Content-Coding Header
-	recordBuf := getBufWithBytes(salt)
-	defer storeBuf(recordBuf)
-
-	rs := make([]byte, 4)
-	binary.BigEndian.PutUint32(rs, recordSize)
-
-	recordBuf.Write(rs)
-	recordBuf.Write([]byte{byte(len(localPublicKey))})
-	recordBuf.Write(localPublicKey)
-
-	// Data
-	dataBuf := getBufWithBytes(message)
-	defer storeBuf(dataBuf)
-
-	// Pad content to max record size - 16 - header
-	// Padding ending delimeter
-	dataBuf.Write([]byte("\x02"))
-	if err := pad(dataBuf, recordLength-recordBuf.Len()); err != nil {
-		return 0, err
-	}
-
-	// Compose the ciphertext
-	ciphertext := gcm.Seal([]byte{}, nonce, dataBuf.Bytes(), nil)
-	recordBuf.Write(ciphertext)
-
-	var jwtCache Cacher
-	if options.JWTCache != nil && s.UniqueKey != nil {
-		jwtCache = options.JWTCache
-	} else {
-		jwtCache = &noCache{}
-	}
-
-	// Get VAPID Authorization header
-	vapidAuthHeader, err := getVAPIDAuthorizationHeaderWithCache(
-		jwtCache,
-		s.UniqueKey,
-		s.Endpoint,
-		options.Subscriber,
-		options.VAPIDPublicKey,
-		options.VAPIDPrivateKey,
-	)
-	if err != nil {
-		return 0, err
-	}
-
-	req := fasthttp.AcquireRequest()
-	defer fasthttp.ReleaseRequest(req)
-	// TODO: set method to POST
-
-	req.SetRequestURI(s.Endpoint)
-	req.Header.SetMethod(fasthttp.MethodPost)
-	req.SetBody(recordBuf.Bytes())
-
-	req.Header.Set("Content-Encoding", "aes128gcm")
-	req.Header.Set("Content-Length", strconv.Itoa(len(ciphertext)))
-	req.Header.Set("Content-Type", "application/octet-stream")
-	req.Header.Set("TTL", strconv.Itoa(options.TTL))
-
-	// Сheck the optional headers
-	if len(options.Topic) > 0 {
-		req.Header.Set("Topic", options.Topic)
-	}
-
-	if isValidUrgency(options.Urgency) {
-		req.Header.Set("Urgency", string(options.Urgency))
-	}
-
-	req.Header.Set("Authorization", vapidAuthHeader)
-
-	resp := fasthttp.AcquireResponse()
-	defer fasthttp.ReleaseResponse(resp)
-
-	if err := options.FastHTTPClient.Do(req, resp); err != nil {
-		return 0, err
-	}
-
-	return resp.StatusCode(), nil
 }
 
 // decodeSubscriptionKey decodes a base64 subscription key.
